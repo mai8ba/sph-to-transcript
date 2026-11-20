@@ -1,0 +1,9 @@
+# 必需：本地语音识别与音频处理
+sherpa-onnx>=1.13.0
+numpy>=1.24
+
+# 可选：自带 ffmpeg 二进制（系统已有 ffmpeg 时可省略）
+imageio-ffmpeg>=0.5.1
+
+# 可选：仅首次微信扫码登录需要（有系统 Edge/Chrome 即可，无需下载 Chromium）
+playwright>=1.40
