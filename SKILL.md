@@ -20,7 +20,7 @@ description_en: |
   A free, local-first transcript tool for WeChat Channels (Shipinhao) videos. Paste a weixin.qq.com/sph/ link and it resolves the stream, downloads the video and transcribes it with an on-device SenseVoice model — no API key and no upload of audio or video to the cloud. The output is a single clean txt file with semantic paragraphs (no timestamps, no subtitles, no intermediate files), followed by an AI polish pass that fixes homophone errors. A one-time WeChat QR login is all that is required. Use when the user shares a WeChat Channels link and asks for a transcript, text version or script, including batch jobs.
 summary: 微信视频号链接一键转纯净逐字稿：本地转写、按语义分段、AI 润色。全程免费零 API，音视频不出本机，首次微信扫码即可。
 category: media
-version: 2.2.0
+version: 2.2.1
 author: 麦爸
 license: MIT
 tags:
@@ -70,18 +70,29 @@ PY="$HOME/.workbuddy/binaries/python/envs/default/bin/python"            # macOS
 
 体检：`sph2txt.py --doctor`（八项全绿即可出稿）
 
-> **首次准备由本助手代劳**：直接跑 `--setup` 装依赖 + 下模型，再跑 `--login`，
-> 让用户本人拿手机微信扫码确认（这步 AI 代不了）。
+> **首次准备一律由用户本人执行，助手不要代跑、也不要自动安装或登录。**
+> 助手只把上面两条命令给用户、说明用途，请用户复制到自己的终端运行；
+> `--login` 的微信扫码必须由用户本人在自己屏幕上确认（AI 代不了）。
 > 独立安装包里附带的 `一键准备.bat/.command`、`首次登录.bat/.command`
 > 是给不用 AI、只想要双击操作的用户准备的；AI 环境用不到，可忽略。
+>
+> 安装/登录会执行 pip 安装固定版本依赖、下载固定来源的 SenseVoice 模型、
+> 首次扫码可能调用 Playwright + ffmpeg。这些都属于用户本机环境变更，
+> **必须在用户明确知道自己机器上会发生什么、并同意后，由用户自己触发**；
+> 助手不得在后台悄悄执行。
 
 ---
 
 ## 出稿（两步：脚本出初稿 → AI 润色）
 
-出稿是**两个动作**，都由本助手完成，用户只说一句话：
+出稿是**两个动作**。当用户把链接交给你、并明确要转文字时，才做这一步：
 
 **第 1 步 · 跑脚本出干净初稿**
+
+> **外发确认（重要）**：脚本解析链接时，会把用户给的**分享链接**发给腾讯元宝的
+> 网页接口（非官方公开 API）换取播放地址。首次对某用户执行前，先用一句话告诉用户
+> 「我会把这条链接发给腾讯元宝网页接口解析，视频/音频本身不上传、只在本机转写」，
+> 得到用户同意后再跑。用户明确拒绝或没说明链接来源，就不要执行。
 
 ```bash
 # 单条（默认：无时间码、自动分段）
@@ -222,7 +233,11 @@ SenseVoice 是离线同音字模型，会错在专有名词和成语上，例如
   不得对外宣称「永久可用」或「官方支持」。
 - 元宝 Cookie 只存本机 `~/.workbuddy/credentials/yuanbao_state.json`；
   视频号直链含 token。**两者都不得写入日志、仓库或对外发送。**
-- 识别全程本地，不上传音视频；仅解析环节会把**分享链接**发给腾讯元宝。
+- 识别全程本地，不上传音视频；仅解析环节会把**分享链接**发给腾讯元宝的
+  **非官方网页接口**。执行前须让用户知情并同意（见「外发确认」），未经同意不解析。
+- **安装与登录由用户本人执行**：助手不得自动跑 `--setup` / `--login`、不得在后台
+  静默安装依赖或下载模型。环境变更（pip 固定版本依赖、固定来源模型、Playwright、
+  ffmpeg）都须用户知晓并自行触发。
 
 ---
 
@@ -242,7 +257,8 @@ sph-to-transcript/
     └── 润色规则.md          # 第 2 步 AI 润色时读的规则
 ```
 
-模型缓存：`~/.cache/sph-transcript/sensevoice/`（可用 `SPH_MODEL_DIR` 覆盖）
-自建模型镜像：环境变量 `SPH_MODEL_URL`（形如 `https://your.host/path/{name}`）
+模型缓存：`~/.cache/sph-transcript/sensevoice/`（可用 `SPH_MODEL_DIR` 指定已有本地目录）。
+模型只从固定白名单来源下载（HuggingFace 官方 / hf-mirror / ModelScope 的官方转换版仓库），
+下载后按 SHA256 校验完整性，不接受任意自定义镜像地址。
 
 元宝解析部分的接口调用逻辑改编自 [Backtthefuture/video-transcript](https://github.com/Backtthefuture/video-transcript)（MIT License）。
