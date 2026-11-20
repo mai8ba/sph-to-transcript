@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -70,10 +71,14 @@ DESKTOP_UA = (
 )
 
 # SenseVoice 模型（sherpa-onnx 官方转换版）
+# 来源固定为官方白名单，下载后按 SHA256 校验完整性，防止下到损坏或被替换的文件。
 MODEL_REPO = "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
 MODEL_FILES = {
-    "model.int8.onnx": 239_233_841,
-    "tokens.txt": 315_894,
+    # 文件名: (期望字节数, SHA256)
+    "model.int8.onnx": (239_233_841,
+                        "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"),
+    "tokens.txt": (315_894,
+                   "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"),
 }
 MODEL_SOURCES = [
     ("HuggingFace 镜像", "https://hf-mirror.com/{repo}/resolve/main/{name}"),
@@ -84,11 +89,17 @@ MODEL_SOURCES = [
 
 
 def model_sources() -> list[tuple[str, str]]:
-    """允许用环境变量 SPH_MODEL_URL 指定自建镜像（形如 https://your.host/path/{name}）。"""
-    custom = os.environ.get("SPH_MODEL_URL", "").strip()
-    if custom:
-        return [("自定义镜像", custom)] + MODEL_SOURCES
+    """返回固定白名单来源；不接受任意自定义镜像地址。"""
     return MODEL_SOURCES
+
+
+def sha256_ok(path: Path, expected: str) -> bool:
+    """流式校验文件 SHA256，避免大文件一次性读进内存。"""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest() == expected
 
 # 媒体域名白名单：只允许腾讯系 CDN
 MEDIA_SUFFIXES = ("qq.com", "qpic.cn", "myqcloud.com", "tencent.com", "gtimg.com")
@@ -124,7 +135,7 @@ _SENT_RE = re.compile(r"[^。！？…；!?;]+[。！？…；!?;]*")
 _ILLEGAL = re.compile(r'[\\/:*?"<>|#\r\n\t\f\v]')
 _TAG_RE = re.compile(r"<\|[^|]*\|>")
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 
 # ---------------------------------------------------------------------------
@@ -1342,10 +1353,11 @@ def download_models(force=False) -> bool:
         return True
 
     say(f"  下载 SenseVoice 模型到 {MODEL_DIR}（共约 229 MB，只需一次）")
-    for name, expected in MODEL_FILES.items():
+    for name, (expected, digest) in MODEL_FILES.items():
         dest = MODEL_DIR / name
-        if dest.is_file() and dest.stat().st_size == expected:
-            say(f"  [OK]    {name} 已存在")
+        if (dest.is_file() and dest.stat().st_size == expected
+                and sha256_ok(dest, digest)):
+            say(f"  [OK]    {name} 已存在（校验通过）")
             continue
         ok = False
         for label, template in model_sources():
@@ -1353,7 +1365,10 @@ def download_models(force=False) -> bool:
             try:
                 say(f"  [下载]  {name}  <- {label}")
                 _download_file(url, dest, expected)
-                say(f"  [OK]    {name} 完成")
+                if not sha256_ok(dest, digest):
+                    dest.unlink(missing_ok=True)
+                    raise RuntimeError("SHA256 校验失败，文件可能损坏或被替换")
+                say(f"  [OK]    {name} 完成（SHA256 校验通过）")
                 ok = True
                 break
             except Exception as exc:
@@ -1386,7 +1401,11 @@ def import_model(src: str) -> int:
                 shutil.copy2(candidate, MODEL_DIR / name)
                 copied.append(name)
         if len(copied) == len(MODEL_FILES):
-            say(f"[OK] 已从目录导入模型：{MODEL_DIR}")
+            bad = [n for n, (_s, d) in MODEL_FILES.items() if not sha256_ok(MODEL_DIR / n, d)]
+            if bad:
+                say(f"[失败] 导入的模型 SHA256 校验不通过：{bad}，请换一份来源可靠的模型")
+                return 1
+            say(f"[OK] 已从目录导入模型（SHA256 校验通过）：{MODEL_DIR}")
             return 0
         say(f"[失败] 目录里缺少模型文件（找到 {copied or '无'}），需要 {list(MODEL_FILES)}")
         return 1
@@ -1401,7 +1420,11 @@ def import_model(src: str) -> int:
             for name in MODEL_FILES:
                 with zf.open(names[name]) as fsrc, open(MODEL_DIR / name, "wb") as fdst:
                     shutil.copyfileobj(fsrc, fdst)
-        say(f"[OK] 已从 zip 导入模型：{MODEL_DIR}")
+        bad = [n for n, (_s, d) in MODEL_FILES.items() if not sha256_ok(MODEL_DIR / n, d)]
+        if bad:
+            say(f"[失败] 导入的模型 SHA256 校验不通过：{bad}，请换一份来源可靠的模型")
+            return 1
+        say(f"[OK] 已从 zip 导入模型（SHA256 校验通过）：{MODEL_DIR}")
         return 0
 
     say(f"[失败] 无法识别的导入源：{src_path}")
